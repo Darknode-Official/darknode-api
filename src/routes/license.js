@@ -9,10 +9,49 @@ function loadUsers() {
   try { return JSON.parse(fs.readFileSync(DB_FILE, "utf8")); }
   catch (_) { return {}; }
 }
+function saveUsers(users) {
+  fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
+  fs.writeFileSync(DB_FILE, JSON.stringify(users, null, 2));
+}
 
-// POST /v1/license/verify — the self-hosted container pings this to check
-// if the user's license is valid. Returns { valid, tier, limits }.
-// This is the ONLY thing your server does — validate the key. No AI runs here.
+// Tier definitions
+const TIERS = {
+  free: {
+    name: "Free",
+    price: 0,
+    engine: "ollama",
+    models: ["gpt-oss:120b", "gpt-oss:20b", "qwen2.5-coder", "deepseek-coder", "hermes3", "llama3.1"],
+    description: "Local AI — runs on your machine, unlimited, $0 forever",
+    requestsPerDay: -1,  // unlimited (it's local)
+    maxTokens: 32768,
+    cloudAI: false,      // no cloud API key bundled
+    features: ["nexus-engine", "cli-tools", "local-ai", "mcp-servers", "plugins"],
+  },
+  pro: {
+    name: "Pro",
+    price: 15,
+    engine: "cloud",
+    models: ["claude-haiku-4-5-20251001", "claude-sonnet-4-20250514", "gpt-4o-mini"],
+    description: "Cloud AI — Claude Sonnet + Haiku, 500 requests/day",
+    requestsPerDay: 500,
+    maxTokens: 8192,
+    cloudAI: true,       // your API key bundled
+    features: ["nexus-engine", "cli-tools", "local-ai", "cloud-ai", "mcp-servers", "plugins", "priority-support"],
+  },
+  ultra: {
+    name: "Ultra",
+    price: 30,
+    engine: "cloud",
+    models: ["claude-opus-4-20250514", "claude-sonnet-4-20250514", "claude-haiku-4-5-20251001", "gpt-4o", "gpt-4o-mini"],
+    description: "Full power — Claude Opus + all models, 5000 requests/day",
+    requestsPerDay: 5000,
+    maxTokens: 32768,
+    cloudAI: true,
+    features: ["nexus-engine", "cli-tools", "local-ai", "cloud-ai", "mcp-servers", "plugins", "priority-support", "multi-agent", "early-access"],
+  },
+};
+
+// POST /v1/license/verify
 app.post("/verify", async (c) => {
   const { apiKey } = await c.req.json();
   if (!apiKey) return c.json({ valid: false, error: "API key required" }, 400);
@@ -23,22 +62,16 @@ app.post("/verify", async (c) => {
 
   const [email, data] = user;
   const tier = data.tier || "free";
-
-  const TIER_LIMITS = {
-    free:  { requestsPerDay: 50,   models: ["claude-haiku-4-5-20251001"], maxTokens: 4096 },
-    pro:   { requestsPerDay: 500,  models: ["claude-haiku-4-5-20251001", "claude-sonnet-4-20250514"], maxTokens: 8192 },
-    ultra: { requestsPerDay: 5000, models: ["claude-haiku-4-5-20251001", "claude-sonnet-4-20250514", "claude-opus-4-20250514"], maxTokens: 32768 },
-  };
+  const tierInfo = TIERS[tier] || TIERS.free;
 
   return c.json({
     valid: true,
     tier,
-    limits: TIER_LIMITS[tier] || TIER_LIMITS.free,
-    // The container uses these to gate access — but AI runs on THEIR server
+    ...tierInfo,
   });
 });
 
-// POST /v1/license/usage — the container reports usage so you can track/bill
+// POST /v1/license/usage
 app.post("/usage", async (c) => {
   const { apiKey, requests, tokens, model } = await c.req.json();
   if (!apiKey) return c.json({ error: "API key required" }, 400);
@@ -52,15 +85,15 @@ app.post("/usage", async (c) => {
   data.usage.requests += requests || 0;
   data.usage.tokens += tokens || 0;
   data.lastActive = new Date().toISOString();
-
-  const saveUsers = (u) => {
-    fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
-    fs.writeFileSync(DB_FILE, JSON.stringify(u, null, 2));
-  };
   users[email] = data;
   saveUsers(users);
 
   return c.json({ ok: true });
+});
+
+// GET /v1/license/tiers — public, show on the website
+app.get("/tiers", (c) => {
+  return c.json({ tiers: Object.entries(TIERS).map(([id, t]) => ({ id, name: t.name, price: t.price, description: t.description, models: t.models, features: t.features, cloudAI: t.cloudAI })) });
 });
 
 module.exports = app;
