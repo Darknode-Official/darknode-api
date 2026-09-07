@@ -1,0 +1,14 @@
+{
+  "name": "darknode-api",
+  "version": "1.0.0",
+  "description": "Darknode API — backend for darknode.ai",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "hono": "^4.0.0"
+  },
+  "engines": { "node": ">=18.0.0" }
+}
